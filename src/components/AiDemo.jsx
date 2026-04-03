@@ -297,6 +297,24 @@ EXTRACTION RULES:
 - profile_summary → exactly 2 sentences, professional, no padding.
 - Return ONLY the JSON object. Nothing before or after it.`;
 
+function calculateTotalExperience(workHistory = []) {
+  let totalMonths = 0;
+
+  workHistory.forEach(w => {
+    const duration = w.duration || "";
+
+    const years = parseInt(duration.match(/(\d+)\s*yr/)?.[1] || 0);
+    const months = parseInt(duration.match(/(\d+)\s*mo/)?.[1] || 0);
+
+    totalMonths += years * 12 + months;
+  });
+
+  const y = Math.floor(totalMonths / 12);
+  const m = totalMonths % 12;
+
+  return `${y} yr${y !== 1 ? "s" : ""} ${m} mo${m !== 1 ? "s" : ""}`;
+}
+
 /* ─── PDF builder (uses jsPDF from CDN) ─────────────────────────────── */
 async function buildPDF(d) {
   if (!window.jspdf) {
@@ -337,6 +355,73 @@ async function buildPDF(d) {
     if(fw>0) doc.roundedRect(x,yy,fw,h,2,2,"F");
   };
 
+  const decodeHtml = str => {
+    if (!str) return "";
+    const t = document.createElement("textarea");
+    t.innerHTML = String(str);
+    return t.value || t.textContent || String(str);
+  };
+
+  const safeText = (input) => {
+    if (!input) return "";
+
+    let s = String(input);
+
+    // Decode HTML safely
+    const txt = document.createElement("textarea");
+    txt.innerHTML = s;
+    s = txt.value;
+
+    // 🚨 CORE FIX: rebuild only valid readable characters
+    let cleaned = "";
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+
+      // allow:
+      // letters, numbers, space, basic punctuation
+      if (
+        (c >= 32 && c <= 126) ||   // normal ASCII
+        c === 10 || c === 13       // newline
+      ) {
+        cleaned += s[i];
+      }
+    }
+
+    // remove repeated '&' patterns like H&y&d&e&r... (apply repeatedly until stable)
+    let prev = "";
+    while (prev !== cleaned) {
+        prev = cleaned;
+        cleaned = cleaned.replace(/([A-Za-z])&([A-Za-z])/g, "$1$2");
+    }
+
+    // remove any remaining stray &
+    cleaned = cleaned.replace(/&+/g, "");
+
+    // normalize spacing
+    cleaned = cleaned.replace(/\s+/g, " ").trim();
+
+    return cleaned;
+  };
+
+  d.candidate_name = safeText(d.candidate_name);
+  d.designation = safeText(d.designation);
+  d.profile_summary = safeText(d.profile_summary);
+
+  if (d.location) {
+    d.location.candidate_location = safeText(d.location.candidate_location);
+    d.location.job_location = safeText(d.location.job_location);
+    d.location.match_status = safeText(d.location.match_status);
+  }
+
+  d.contact_number = safeText(d.contact_number);
+  d.email = safeText(d.email);
+
+  const barText = (text, width) => doc.splitTextToSize(safeText(text), width);
+  const bulletText = str => {
+    const base = safeText(str);
+    return "- " + base.replace(/^[••→]+[\s]*/u, "");
+  };
+
   const pm = d.profile_match || {};
   const score = parseInt(pm.overall_percentage) || 0;
   const v = verdict(score);
@@ -351,28 +436,135 @@ async function buildPDF(d) {
   doc.setFontSize(10); doc.setFont("helvetica","normal"); sC("#bfdbfe"); doc.text(d.designation||"",M,37);
 
   // verdict pill
-  const[vlr,vlg,vlb]=hx("#fff"); doc.setFillColor(vlr,vlg,vlb);
-  doc.roundedRect(W-M-54,22,54,14,3,3,"F");
-  const[vcr,vcg,vcb]=hx(v.fg); doc.setTextColor(vcr,vcg,vcb);
-  doc.setFontSize(13); doc.setFont("helvetica","bold"); doc.text(score+"%",W-M-27,30,{align:"center"});
-  doc.setFontSize(6.5); doc.text(v.emoji+" "+v.label,W-M-27,35,{align:"center"});
-  y=48;
+  // const[vlr,vlg,vlb]=hx("#fff"); doc.setFillColor(vlr,vlg,vlb);
+  // doc.roundedRect(W-M-54,22,54,14,3,3,"F");
+  // const[vcr,vcg,vcb]=hx(v.fg); doc.setTextColor(vcr,vcg,vcb);
+  // doc.setFontSize(13); doc.setFont("helvetica","bold"); doc.text(score+"%",W-M-27,30,{align:"center"});
+  // doc.setFontSize(6.5); doc.text(v.emoji+" "+v.label,W-M-27,35,{align:"center"});
+  // y=48;
+
+  const pillColor = v.bar || "#16a34a";
+  sF(pillColor);
+  doc.roundedRect(W - M - 54, 22, 54, 14, 3, 3, "F");
+  sC("#ffffff");
+  doc.setFontSize(13);
+  doc.setFont("helvetica", "bold");
+  doc.text(String(score) + "%", W - M - 27, 30, { align: "center" });
+  const verdictText = doc.splitTextToSize(`${v.label}`, 48);
+
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "bold");
+  doc.text(verdictText, W - M - 27, 35, { align: "center" });
+  y = 48;
 
   // contacts row
-  const ct=[d.contact_number&&"📞 "+d.contact_number, d.email&&"✉ "+d.email, d.location?.candidate_location&&"📍 "+d.location.candidate_location].filter(Boolean);
-  if(ct.length){ sF("#f0f9ff"); doc.rect(M,y,CW,9,"F"); sD("#bfdbfe"); doc.rect(M,y,CW,9,"S"); sC("#1e40af"); doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.text(ct.join("   |   "),M+3,y+6); y+=12; }
+  // const ct=[d.contact_number&&"📞 "+d.contact_number, d.email&&"✉ "+d.email, d.location?.candidate_location&&"📍 "+d.location.candidate_location].filter(Boolean);
+  // if(ct.length){ sF("#f0f9ff"); doc.rect(M,y,CW,9,"F"); sD("#bfdbfe"); doc.rect(M,y,CW,9,"S"); sC("#1e40af"); doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.text(ct.join("   |   "),M+3,y+6); y+=12; }
+
+  const ct = [
+      d.contact_number ? "Ph: " + d.contact_number : null,
+      d.email ? "Email: " + d.email : null,
+      d.location?.candidate_location ? "Location: " + d.location.candidate_location : null
+  ].filter(Boolean);
+  if (ct.length) {
+    sF("#f0f9ff");
+    doc.roundedRect(M, y, CW, 9, 1.5, 1.5, "F");
+    sD("#bfdbfe");
+    doc.rect(M, y, CW, 9, "S");
+    sC("#1e40af");
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    const contactLines = doc.splitTextToSize(ct.join(" | "), CW - 10);
+
+    doc.setFontSize(8);
+    doc.setLineHeightFactor(1.4);
+
+    doc.text(contactLines, M + 4, y + 6);
+
+    y += 6 + contactLines.length * 6;
+  }
 
   // profile summary
-  y+=3; sF("#eff6ff"); doc.roundedRect(M,y,CW,17,2,2,"F");
-  sC("#1d4ed8"); doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.text("PROFILE SUMMARY",M+3,y+6);
-  sC("#374151"); doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
-  const sl=doc.splitTextToSize(d.profile_summary||"",CW-6); doc.text(sl.slice(0,2),M+3,y+12); y+=21;
+  // y+=3; sF("#eff6ff"); doc.roundedRect(M,y,CW,17,2,2,"F");
+  // sC("#1d4ed8"); doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.text("PROFILE SUMMARY",M+3,y+6);
+  // sC("#374151"); doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+  // const sl=doc.splitTextToSize(d.profile_summary||"",CW-6); doc.text(sl.slice(0,2),M+3,y+12); y+=21;
+
+  // y += 3;
+  // sF("#eff6ff");
+  // doc.roundedRect(M, y, CW, 17, 2, 2, "F");
+  // sC("#1d4ed8");
+  // doc.setFontSize(8);
+  // doc.setFont("helvetica", "bold");
+  // doc.text("PROFILE SUMMARY", M + 3, y + 6);
+  // sC("#374151");
+  // doc.setFont("helvetica", "normal");
+  // doc.setFontSize(8.5);
+  // const summaryLines = doc.splitTextToSize(safeText(d.profile_summary || "N/A"), CW - 6);
+  // doc.text(summaryLines, M + 3, y + 12);
+  // y += 21;
+
+  y += 3;
+
+  const summary = safeText(d.profile_summary || "N/A");
+  const summaryLines = doc.splitTextToSize(summary, CW - 10);
+
+  // MORE breathing space
+  const summaryHeight = Math.max(24, 12 + summaryLines.length * 6);
+
+  sF("#eff6ff");
+  doc.roundedRect(M, y, CW, summaryHeight, 2, 2, "F");
+
+  // Title
+  sC("#1d4ed8");
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.text("PROFILE SUMMARY", M + 4, y + 5);
+
+  // Text
+  sC("#374151");
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setLineHeightFactor(1.4);
+
+  doc.text(summaryLines, M + 4, y + 12, {
+    maxWidth: CW - 10
+  });
+
+  y += summaryHeight + 4;
 
   // verdict banner
-  const[vlr2,vlg2,vlb2]=hx(v.bg); doc.setFillColor(vlr2,vlg2,vlb2); doc.roundedRect(M,y,CW,13,2,2,"F");
-  const[vcr2,vcg2,vcb2]=hx(v.fg); doc.setTextColor(vcr2,vcg2,vcb2);
-  doc.setFontSize(11); doc.setFont("helvetica","bold");
-  doc.text("SCREENING RESULT: "+v.emoji+" "+v.label+" — "+score+"%",W/2,y+9,{align:"center"}); y+=17;
+  // const[vlr2,vlg2,vlb2]=hx(v.bg); doc.setFillColor(vlr2,vlg2,vlb2); doc.roundedRect(M,y,CW,13,2,2,"F");
+  // const[vcr2,vcg2,vcb2]=hx(v.fg); doc.setTextColor(vcr2,vcg2,vcb2);
+  // doc.setFontSize(11); doc.setFont("helvetica","bold");
+  // doc.text("SCREENING RESULT: "+v.emoji+" "+v.label+" — "+score+"%",W/2,y+9,{align:"center"}); y+=17;
+
+  const screeningTitle = "SCREENING RESULT";
+  const screeningSubtitle = `${v.label} (${score}%)`;
+  const subtitleLines = doc.splitTextToSize(safeText(screeningSubtitle), CW - 20);
+  const bannerHeight = 14 + subtitleLines.length * 5;
+
+  const bannerBg = v.bg || "#dcfce7";
+  const bannerTextColor = v.fg || "#14532d";
+
+  const [bgr, bgg, bgb] = hx(bannerBg);
+  doc.setFillColor(bgr, bgg, bgb);
+  doc.roundedRect(M, y, CW, bannerHeight, 2, 2, "F");
+
+  // Title
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  sC("#0f172a"); // FIX: dark text instead of white
+  doc.text(screeningTitle, M + CW / 2, y + 6, { align: "center" });
+
+  // Subtitle
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  const [tr, tg, tb] = hx(bannerTextColor);
+  doc.setTextColor(tr, tg, tb);
+  doc.text(subtitleLines, M + CW / 2, y + 11, { align: "center" });
+
+  y += bannerHeight + 8;
 
   // score bars
   doc.setFontSize(10); doc.setFont("helvetica","bold"); sC("#0f172a"); doc.text("MATCH SCORE OVERVIEW",M,y); y+=6;
@@ -381,17 +573,50 @@ async function buildPDF(d) {
     doc.setFontSize(8.5); doc.setFont("helvetica","normal"); sC("#374151"); doc.text(lbl,M,y+4.5);
     bar(M+36,y-1,CW-46,7,v2,col);
     const[tr,tg,tb]=hx(tc); doc.setTextColor(tr,tg,tb); doc.setFont("helvetica","bold"); doc.text(v2+"%",W-M,y+4.5,{align:"right"}); y+=9;
-  }); y+=4;
+  }); y+=8;
 
   // work history
-  chk(12); doc.setFontSize(10); doc.setFont("helvetica","bold"); sC("#0f172a"); doc.text("WORK HISTORY & TENURE",M,y); y+=6;
-  (d.work_history||[]).forEach(w=>{ chk(15); const isA=w.to==="Present"; const bc=isA?"#10b981":"#1d4ed8"; const bg3=isA?"#f0fdf4":"#f0f9ff";
-    const[bgr,bgg,bgb]=hx(bg3); doc.setFillColor(bgr,bgg,bgb); doc.roundedRect(M,y,CW,13,2,2,"F");
-    const[lr,lg,lb]=hx(bc); doc.setFillColor(lr,lg,lb); doc.rect(M,y,2,13,"F");
-    sC("#0f172a"); doc.setFontSize(9); doc.setFont("helvetica","bold"); doc.text(w.company||"",M+5,y+5.5);
-    sC("#64748b"); doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.text(w.role||"",M+5,y+10);
-    const ds=(w.from||"")+(w.to?" – "+w.to:"")+(w.duration?" ("+w.duration+")":"");
-    doc.setTextColor(lr,lg,lb); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text(ds,W-M,y+5.5,{align:"right"}); y+=15;
+  // chk(12); doc.setFontSize(10); doc.setFont("helvetica","bold"); sC("#0f172a"); doc.text("WORK HISTORY & TENURE",M,y); y+=6;
+  // (d.work_history||[]).forEach(w=>{ chk(15); const isA=w.to==="Present"; const bc=isA?"#10b981":"#1d4ed8"; const bg3=isA?"#f0fdf4":"#f0f9ff";
+  //   const[bgr,bgg,bgb]=hx(bg3); doc.setFillColor(bgr,bgg,bgb); doc.roundedRect(M,y,CW,13,2,2,"F");
+  //   const[lr,lg,lb]=hx(bc); doc.setFillColor(lr,lg,lb); doc.rect(M,y,2,13,"F");
+  //   sC("#0f172a"); doc.setFontSize(9); doc.setFont("helvetica","bold"); doc.text(w.company||"",M+5,y+5.5);
+  //   sC("#64748b"); doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.text(w.role||"",M+5,y+10);
+  //   const ds=(w.from||"")+(w.to?" – "+w.to:"")+(w.duration?" ("+w.duration+")":"");
+  //   doc.setTextColor(lr,lg,lb); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text(ds,W-M,y+5.5,{align:"right"}); y+=15;
+  // });
+
+  chk(12);
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  sC("#0f172a");
+  const totalExp = calculateTotalExperience(d.work_history || []);
+  doc.text(`WORK HISTORY & TENURE (${totalExp})`, M, y);
+  y += 6;
+  (d.work_history || []).forEach(w => {
+    chk(15);
+    const isActive = w.to === "Present";
+    const bx = isActive ? "#10b981" : "#1d4ed8";
+    const bgc = isActive ? "#f0fdf4" : "#f0f9ff";
+    const [rR, rG, rB] = hx(bgc);
+    doc.setFillColor(rR, rG, rB);
+    doc.roundedRect(M, y, CW, 13, 2, 2, "F");
+    const [barR, barG, barB] = hx(bx);
+    doc.setFillColor(barR, barG, barB);
+    doc.rect(M, y, 2, 13, "F");
+    sC("#0f172a");
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.text(safeText(w.company || "Unknown"), M + 5, y + 5.5);
+    sC("#64748b");
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.text(safeText(w.role || ""), M + 5, y + 10);
+
+    const ds = `${safeText(w.from || "")}${w.to ? ` – ${safeText(w.to)}` : ""}${w.duration ? ` (${safeText(w.duration)})` : ""}`.trim();
+    doc.text(ds, W - M - 6, y + 5.5, { align: "right", maxWidth: CW - 54 });
+
+    y += 15;
   });
 
   // ── PAGE 2 ──────────────────────────────────────────────────────────
@@ -405,13 +630,13 @@ async function buildPDF(d) {
     const[sbr,sbg2,sbb]=hx(sb); doc.setTextColor(sbr,sbg2,sbb); doc.setFontSize(7); doc.setFont("helvetica","bold"); doc.text(s.status,M+61,y+4.5,{align:"center"});
     bar(M+74,y-1,CW-84,7,v2,col);
     const[tr,tg,tb]=hx(tc); doc.setTextColor(tr,tg,tb); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text(v2+"%",W-M,y+4.5,{align:"right"}); y+=10;
-  }); y+=4;
+  }); y+=8;
 
   // certifications
-  chk(10); doc.setFontSize(10); doc.setFont("helvetica","bold"); sC("#0f172a"); doc.text("CERTIFICATIONS",M,y); y+=6;
-  if((d.certifications||[]).length){ (d.certifications||[]).forEach(c=>{ chk(8); sC("#15803d"); doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.text("✓",M,y+4); sC("#374151"); doc.setFont("helvetica","normal"); doc.text(c,M+6,y+4); y+=7; }); }
+  chk(10); doc.setFontSize(10); doc.setFont("helvetica","bold"); sC("#0f172a"); doc.text("CERTIFICATIONS",M,y); y+=4;
+  if((d.certifications||[]).length){ (d.certifications||[]).forEach(c=>{ chk(8); sC("#15803d"); doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.text("•", M, y + 4); sC("#374151"); doc.setFont("helvetica","normal"); doc.text(c,M+6,y+4); y+=7; }); }
   else{ sC("#94a3b8"); doc.setFont("helvetica","italic"); doc.setFontSize(9); doc.text("N/A — No certifications found",M,y+4); y+=8; }
-  y+=4;
+  y+=5;
 
   // education
   chk(20); doc.setFontSize(10); doc.setFont("helvetica","bold"); sC("#0f172a"); doc.text("HIGHEST EDUCATION",M,y); y+=6;
@@ -430,24 +655,110 @@ async function buildPDF(d) {
   const rtc=rl.includes("low")?"#14532d":rl.includes("medium")?"#7c2d12":"#7f1d1d";
   const[rbgr,rbgg,rbgb]=hx(rbg); doc.setFillColor(rbgr,rbgg,rbgb); doc.roundedRect(M,y,CW,10,2,2,"F");
   const[rtcr,rtcg,rtcb]=hx(rtc); doc.setTextColor(rtcr,rtcg,rtcb); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text(risk.risk_level||"Low Risk",W/2,y+7,{align:"center"}); y+=14;
-  (risk.reasons||["No significant red flags detected."]).forEach(r=>{ chk(8); sC("#1d4ed8"); doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.text("→",M,y+4); sC("#64748b"); doc.setFont("helvetica","normal"); const ls=doc.splitTextToSize(r,CW-8); doc.text(ls,M+6,y+4); y+=ls.length*5+2; }); y+=4;
+  (risk.reasons||["No significant red flags detected."]).forEach(r=>{ chk(8); sC("#1d4ed8"); doc.setFont("helvetica","bold"); doc.setFontSize(9); 
+  doc.text("•",M,y+4); 
+  sC("#64748b"); 
+  doc.setFont("helvetica","normal"); 
+  const ls=doc.splitTextToSize(safeText(r),CW-8); doc.text(ls,M+5,y+4); y+=ls.length*5+3; }); y+=6;
 
   // keywords
   chk(28); doc.setFontSize(10); doc.setFont("helvetica","bold"); sC("#0f172a"); doc.text("KEYWORD MATCH",M,y); y+=6;
   const kw=d.keyword_match||{};
   bar(M,y,CW,8,kw.percentage||0,pctStroke(kw.percentage||0));
-  const[ktr,ktg,ktb]=hx(pctText(kw.percentage||0)); doc.setTextColor(ktr,ktg,ktb); doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.text((kw.percentage||0)+"%",W/2,y+5.5,{align:"center"}); y+=12;
+  const[ktr,ktg,ktb]=hx(pctText(kw.percentage||0)); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.text((kw.percentage||0)+"%",W/2,y+5.5,{align:"center"}); y+=12;
   if((kw.matched||[]).length){ chk(8); sC("#14532d"); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text("Matched:",M,y+4); sC("#374151"); doc.setFont("helvetica","normal"); const mt=doc.splitTextToSize((kw.matched||[]).join(", "),CW-22); doc.text(mt,M+22,y+4); y+=mt.length*5+3; }
   if((kw.missing||[]).length){ chk(8); sC("#7f1d1d"); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text("Missing:",M,y+4); sC("#374151"); doc.setFont("helvetica","normal"); const mx=doc.splitTextToSize((kw.missing||[]).join(", "),CW-22); doc.text(mx,M+22,y+4); y+=mx.length*5+3; } y+=4;
 
   // location
+  // chk(22); doc.setFontSize(10); doc.setFont("helvetica","bold"); sC("#0f172a"); doc.text("LOCATION MATCH",M,y); y+=6;
+  // const loc=d.location||{}; const ls=loc.match_status||"Not Available";
+  // const lbg=ls.includes("Exact")?"#dcfce7":ls.includes("Nearby")?"#ffedd5":"#fee2e2";
+  // const ltc=ls.includes("Exact")?"#14532d":ls.includes("Nearby")?"#7c2d12":"#7f1d1d";
+  // const[lbgr,lbgg,lbgb]=hx(lbg); doc.setFillColor(lbgr,lbgg,lbgb); 
+  // const[ltcr,ltcg,ltcb]=hx(ltc); doc.setTextColor(ltcr,ltcg,ltcb); doc.setFont("helvetica","bold"); doc.setFontSize(9);
+  // const locText = `${safeText(loc.candidate_location || "N/A")} → ${safeText(loc.job_location || "N/A")} (${safeText(ls)})`;
+
+  // const locLines = doc.splitTextToSize(locText, CW - 10);
+  // const locHeight = Math.max(10, locLines.length * 5 + 6);
+  
+  // doc.roundedRect(M, y, CW, locHeight, 2, 2, "F");
+
+  // doc.setFont("helvetica", "bold");
+  // doc.setFontSize(9);
+
+  // doc.text(locLines, W / 2, y + 6, {
+  //   align: "center",
+  //   maxWidth: CW - 10
+  // });
+
+  // y += locHeight + 4;
+  
   chk(22); doc.setFontSize(10); doc.setFont("helvetica","bold"); sC("#0f172a"); doc.text("LOCATION MATCH",M,y); y+=6;
-  const loc=d.location||{}; const ls=loc.match_status||"Not Available";
+  const loc = d.location || {};
+  const ls = loc.match_status || "Not Available";
   const lbg=ls.includes("Exact")?"#dcfce7":ls.includes("Nearby")?"#ffedd5":"#fee2e2";
   const ltc=ls.includes("Exact")?"#14532d":ls.includes("Nearby")?"#7c2d12":"#7f1d1d";
-  const[lbgr,lbgg,lbgb]=hx(lbg); doc.setFillColor(lbgr,lbgg,lbgb); doc.roundedRect(M,y,CW,10,2,2,"F");
-  const[ltcr,ltcg,ltcb]=hx(ltc); doc.setTextColor(ltcr,ltcg,ltcb); doc.setFont("helvetica","bold"); doc.setFontSize(9);
-  doc.text((loc.candidate_location||"N/A")+" → "+(loc.job_location||"N/A")+" | "+ls,W/2,y+7,{align:"center"}); y+=14;
+  const[lbgr,lbgg,lbgb]=hx(lbg); doc.setFillColor(lbgr,lbgg,lbgb); 
+  const[ltcr,ltcg,ltcb]=hx(ltc); doc.setTextColor(ltcr,ltcg,ltcb);
+
+  const cleanLoc = (s) => String(s || "").replace(/[^\x20-\x7E]/g, "").replace(/\s+/g, " ").trim();
+  const locText = `${cleanLoc(loc.candidate_location) || "N/A"} -> ${cleanLoc(loc.job_location) || "N/A"} (${cleanLoc(ls)})`;
+
+  const locLines = doc.splitTextToSize(locText, CW - 16);
+  const locHeight = Math.max(12, locLines.length * 6 + 6);
+
+  doc.roundedRect(M, y, CW, locHeight, 2, 2, "F");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+
+  // better vertical alignment
+  doc.text(locLines, W / 2, y + 7, {
+    align: "center",
+    maxWidth: CW - 16
+  });
+
+  y += locHeight + 6;
+
+  // ── SCREENING CRITERIA LEGEND ──
+  chk(40);
+  y += 6;
+  doc.setFontSize(10); doc.setFont("helvetica", "bold"); sC("#0f172a");
+  doc.text("SCREENING CRITERIA", M, y); y += 8;
+
+  const criteria = [
+    { pct: "85%+",   label: "Screen Select",  bg: "#dcfce7", tc: "#15803d" },
+    { pct: "80-85%", label: "Partial Select", bg: "#ffedd5", tc: "#c2410c" },
+    { pct: "<80%",   label: "Rejected",       bg: "#fee2e2", tc: "#b91c1c" },
+  ];
+
+  const boxW = (CW - 10) / 3;  // 3 equal boxes with 5px gap between
+  const boxH = 22;
+  const gap  = 5;
+
+  criteria.forEach((item, i) => {
+    const bx = M + i * (boxW + gap);
+
+    // background fill
+    const [bgr, bgg, bgb] = hx(item.bg);
+    doc.setFillColor(bgr, bgg, bgb);
+    doc.roundedRect(bx, y, boxW, boxH, 3, 3, "F");
+
+    // percentage text — large & bold
+    const [tcr, tcg, tcb] = hx(item.tc);
+    doc.setTextColor(tcr, tcg, tcb);
+    doc.setFontSize(13);
+    doc.setFont("helvetica", "bold");
+    doc.text(item.pct, bx + boxW / 2, y + 10, { align: "center" });
+
+    // label text — smaller, grey
+    sC("#fff");
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.text(item.label, bx + boxW / 2, y + 17, { align: "center" });
+  });
+
+  y += boxH + 10;
 
   // footer every page
   const tot=doc.getNumberOfPages();
