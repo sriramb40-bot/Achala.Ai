@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 
 /* ─── colour helpers ─────────────────────────────────────────────────── */
-const pctStroke = p => p > 80 ? "#16a34a" : p >= 50 ? "#ea580c" : p >= 20 ? "#dc2626" : "#334155";
-const pctText   = p => p > 80 ? "#15803d" : p >= 50 ? "#c2410c" : p >= 20 ? "#b91c1c" : "#0f172a";
+const pctStroke = p => p > 80 ? "#16a34a" : p >= 50 ? "#EAB308" : p >= 20 ? "#dc2626" : "#334155";
+const pctText   = p => p > 80 ? "#15803d" : p >= 50 ? "#CA8A04" : p >= 20 ? "#b91c1c" : "#0f172a";
 const pctBg     = p => p > 80 ? "#dcfce7" : p >= 50 ? "#ffedd5" : p >= 20 ? "#fee2e2" : "#f1f5f9";
 
 function verdict(s) {
@@ -244,57 +244,133 @@ async function readPDF(file, cb) {
 /* ─── System prompt ──────────────────────────────────────────────────── */
 const SYS = `You are an expert AI Resume Screening Assistant for Achala.Ai.
 Analyze the provided Job Description and Candidate Resume carefully.
+ 
 Return ONLY a single valid JSON object. No markdown. No backticks. No explanation. Just the raw JSON.
-
+ 
 {
-  "candidate_name": "<full name from resume, or Not Available>",
-  "designation": "<role title from Job Description>",
-  "profile_summary": "<exactly 2 professional sentences summarising the candidate's fit for this role>",
-  "profile_match": {
-    "overall_percentage": <integer 0-100>,
-    "experience_match":   <integer 0-100>,
-    "skills_match":       <integer 0-100>,
-    "location_match_pct": <integer 0-100>,
-    "keyword_match_pct":  <integer 0-100>
-  },
-  "skills_detail": [
-    { "skill": "<skill name>", "percentage": <0-100>, "status": "<Matched|Partial|Missing>" }
-  ],
-  "work_history": [
-    { "company": "<name>", "role": "<title>", "duration": "<e.g. 2 yrs 3 mo>", "from": "<year>", "to": "<year or Present>" }
-  ],
-  "linkedin":        "<URL string or null>",
-  "contact_number":  "<phone string or null>",
-  "email":           "<email string or null>",
-  "location": {
-    "candidate_location": "<city/state or Not Available>",
-    "job_location":       "<city/state or Not Available>",
-    "match_status":       "<Exact Match|Nearby Match|Mismatch|Not Available>"
-  },
-  "certifications": ["<cert name>"],
-  "education": {
-    "highest_degree": "<degree>",
-    "field":          "<subject area>",
-    "institution":    "<college/university>",
-    "year":           "<graduation year or Not Available>"
-  },
-  "risk_analysis": {
-    "risk_level": "<Low Risk|Medium Risk|High Risk>",
-    "reasons":    ["<reason>"]
-  },
-  "keyword_match": {
-    "percentage": <0-100>,
-    "matched":    ["<keyword>"],
-    "missing":    ["<keyword>"]
-  }
+"candidate_name": "<full name from resume, or Not Available>",
+"designation": "<role title from Job Description>",
+ 
+"profile_summary": "<exactly 2 professional sentences: First sentence must summarise candidate’s overall experience and major skills from the resume. Second sentence must clearly state whether the profile matches the JD and highlight missing skills/keywords if any. If no skills match, clearly mention profile does not match the JD.>",
+ 
+"profile_match": {
+"overall_percentage": <integer 0-100>,
+"experience_match": <integer 0-100>,
+"skills_match": <integer 0-100>,
+"location_match_pct": <integer 0-100>,
+"keyword_match_pct": <integer 0-100>
+},
+ 
+"confidence_score": {
+"percentage": <integer 0-100>,
+"level": "<High|Medium|Low>",
+"reason": "<brief explanation based on match strength, resume clarity, and data completeness>"
+},
+ 
+"hiring_recommendation": {
+"decision": "<Hire|Hold|Reject>",
+"reason": "<short justification based on match score, skills alignment, and confidence score>"
+},
+ 
+"skills_detail": [
+{ "skill": "<skill name>", "percentage": <0-100>, "status": "<Matched|Partial|Missing>" }
+],
+ 
+"work_history": [
+{ "company": "<name>", "role": "<title>", "duration": "<e.g. 2 yrs 3 mo>", "from": "<year>", "to": "<year or Present>" }
+],
+ 
+"linkedin": "<URL string or null>",
+"contact_number": "<phone string or null>",
+"email": "<email string or null>",
+ 
+"location": {
+"candidate_location": "<city/state or Not Available>",
+"job_location": "<city/state or Not Available>",
+"match_status": "<Exact Match|Nearby Match|Mismatch|Not Available>"
+},
+ 
+"certifications": ["<cert name>"],
+ 
+"education": {
+"highest_degree": "<degree>",
+"field": "<subject area>",
+"institution": "<college/university>",
+"year": "<graduation year or Not Available>"
+},
+ 
+"risk_analysis": {
+"risk_level": "<Low Risk|Medium Risk|High Risk>",
+"reasons": ["<reason>"]
+},
+ 
+"keyword_match": {
+"percentage": <0-100>,
+"matched": ["<keyword>"],
+"missing": ["<keyword>"]
 }
-
+}
+ 
+STRICT DECISION RULES:
+ 
+1. DIRECT REJECT CONDITION:
+- If there are NO matching skills AND NO matching keywords between JD and Resume:
+  → Set "overall_percentage" = 0
+  → Set skills_match = 0
+  → Set keyword_match_pct = 0
+  → Set confidence_score.percentage < 60
+  → Set confidence_score.level = "Low"
+  → Set hiring_recommendation.decision = "Reject"
+  → hiring_recommendation.reason = "No matching skills or keywords found as per JD"
+  → Ensure profile_summary clearly states: "Profile does not match the JD as no relevant skills or keywords were found."
+ 
+2. MATCHING LOGIC:
+- If skills_match >= 85 AND keyword_match_pct >= 85 → Strong Match
+- If skills_match between 80–84 OR keyword_match_pct between 80–84 → Partial Match
+- If skills_match <= 79 OR keyword_match_pct <= 79 → Weak Match
+ 
+3. HIRING RECOMMENDATION RULES:
+ 
+- Hire:
+  → overall_percentage >= 85
+  → confidence_score.level = "High"
+  → Strong skills & keyword alignment
+  → hiring_recommendation.decision = "Hire"
+ 
+- Hold:
+  → overall_percentage between 80–84
+  → OR confidence_score.level = "Medium"
+  → Some missing skills but still relevant
+  → hiring_recommendation.decision = "Hold"
+ 
+- Reject:
+  → overall_percentage < 80
+  → OR confidence_score.level = "Low"
+  → Weak match or missing critical skills
+  → hiring_recommendation.decision = "Reject"
+ 
+4. PROFILE SUMMARY RULE (MANDATORY):
+- Sentence 1: Candidate experience + top 3–5 key skills from resume
+- Sentence 2: JD match status + mention missing skills (if any)
+- Must be exactly 2 sentences (no more, no less)
+ 
+5. CONFIDENCE SCORE RULES:
+- High (85–100):
+  → Strong skill + keyword match
+  → Resume is well-structured and complete
+ 
+- Medium (60–84):
+  → Partial match with some missing skills/keywords
+ 
+- Low (<60):
+  → Weak or no match
+  → MUST be Low if Direct Reject condition is triggered
+ 
 EXTRACTION RULES:
 - candidate_name, linkedin, contact_number, email → extract verbatim from resume; use null if absent.
 - certifications → empty array [] if none found.
 - work_history → list EVERY job found; most recent first.
 - skills_detail → evaluate 8-10 skills mentioned in the JD against the resume.
-- profile_summary → exactly 2 sentences, professional, no padding.
 - Return ONLY the JSON object. Nothing before or after it.`;
 
 function calculateTotalExperience(workHistory = []) {
@@ -433,7 +509,8 @@ async function buildPDF(d) {
   sC("#ffffff"); doc.setFontSize(16); doc.setFont("helvetica","bold"); doc.text("Achala.Ai",M,12);
   doc.setFontSize(7); doc.setFont("helvetica","normal"); sC("#93c5fd"); doc.text("AI RECRUITMENT INTELLIGENCE REPORT",M,18);
   sC("#ffffff"); doc.setFontSize(18); doc.setFont("helvetica","bold"); doc.text(d.candidate_name||"Candidate",M,30);
-  doc.setFontSize(10); doc.setFont("helvetica","normal"); sC("#bfdbfe"); doc.text(d.designation||"",M,37);
+  doc.setFontSize(10); doc.setFont("helvetica","normal"); sC("#bfdbfe"); 
+  //doc.text(d.designation||"",M,37);
 
   // verdict pill
   // const[vlr,vlg,vlb]=hx("#fff"); doc.setFillColor(vlr,vlg,vlb);
@@ -665,7 +742,7 @@ async function buildPDF(d) {
   chk(28); doc.setFontSize(10); doc.setFont("helvetica","bold"); sC("#0f172a"); doc.text("KEYWORD MATCH",M,y); y+=6;
   const kw=d.keyword_match||{};
   bar(M,y,CW,8,kw.percentage||0,pctStroke(kw.percentage||0));
-  const[ktr,ktg,ktb]=hx(pctText(kw.percentage||0)); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.text((kw.percentage||0)+"%",W/2,y+5.5,{align:"center"}); y+=12;
+  const[ktr,ktg,ktb]=hx(pctText(kw.percentage||0)); doc.setTextColor(0, 0, 0); doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.text((kw.percentage||0)+"%",W/2,y+5.5,{align:"center"}); y+=12;
   if((kw.matched||[]).length){ chk(8); sC("#14532d"); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text("Matched:",M,y+4); sC("#374151"); doc.setFont("helvetica","normal"); const mt=doc.splitTextToSize((kw.matched||[]).join(", "),CW-22); doc.text(mt,M+22,y+4); y+=mt.length*5+3; }
   if((kw.missing||[]).length){ chk(8); sC("#7f1d1d"); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text("Missing:",M,y+4); sC("#374151"); doc.setFont("helvetica","normal"); const mx=doc.splitTextToSize((kw.missing||[]).join(", "),CW-22); doc.text(mx,M+22,y+4); y+=mx.length*5+3; } y+=4;
 
