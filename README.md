@@ -1,24 +1,53 @@
 # React + Vite
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Minimal React + Vite app with an Express-based production server and OpenAI/Azure OpenAI proxy support.
 
-Currently, two official plugins are available:
+## Setup
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+2. Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+3. Fill in the environment variables in `.env`:
+   - For OpenAI: set `OPENAI_API_KEY`
+   - For Azure OpenAI: set `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT_NAME`, and `AZURE_OPENAI_API_KEY`
+   - Optionally set `AZURE_OPENAI_API_VERSION`
+   - Optionally set `VITE_AZURE_OPENAI_DEPLOYMENT_NAME` for Azure client routing
+   - Optionally set `VITE_OPENAI_API_BASE_URL` to override the OpenAI request URL
+4. Start development:
+   ```bash
+   npm run dev
+   ```
 
-## React Compiler
+## Production Deployment
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. Build the frontend assets:
+   ```bash
+   npm run build
+   ```
+2. Start the production server:
+   ```bash
+   npm run start
+   ```
 
-## Expanding the ESLint configuration
+Alternatively, to serve the built app with the same production server:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm run serve
+```
 
-## Local Anthropic proxy setup
+## Environment Variables
 
-This app now uses a local Vite dev server proxy for Anthropic API requests to avoid browser CORS issues and keep the API key secure.
+- `.env` is ignored by git and should never be committed.
+- Use your hosting environment's secret management for production values.
+- The production server reads the same env keys as the local dev setup.
 
-1. Copy `.env.example` to `.env`.
-2. Set `ANTHROPIC_API_KEY` with your Anthropic secret key.
-3. Start the app with `npm run dev`.
+## Notes
+
+- `npm run dev` uses the Express server plus Vite middleware for local development.
+- `npm run build` generates the `dist/` folder used by the production server.
+- `npm run start` runs `server.js production`, which serves `dist/` and the API proxy endpoints.
