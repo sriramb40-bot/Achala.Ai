@@ -614,7 +614,7 @@ async function buildPDF(d) {
 
   const pm = d.profile_match || {};
   const score = parseInt(pm.overall_percentage) || 0;
-  const weightedResumeScore = (rawResumeScore / 100) * 50;
+  const weightedResumeScore = (score / 100) * 50;
   const v = verdict(score);
   //const v = verdict(Math.round(weightedResumeScore));
 
