@@ -6,8 +6,8 @@ const pctText   = p => p > 80 ? "#15803d" : p >= 50 ? "#CA8A04" : p >= 20 ? "#b9
 const pctBg     = p => p > 80 ? "#dcfce7" : p >= 50 ? "#ffedd5" : p >= 20 ? "#fee2e2" : "#f1f5f9";
 
 function verdict(s) {
-  if (s >= 85) return { label:"SCREEN SELECT",      emoji:"✅", fg:"#14532d", bg:"#dcfce7", bar:"#16a34a" };
-  if (s >  80) return { label:"PARTIALLY SELECTED", emoji:"🟡", fg:"#7c2d12", bg:"#ffedd5", bar:"#ea580c" };
+  if (s >= 75) return { label:"SCREEN SELECT",      emoji:"✅", fg:"#14532d", bg:"#dcfce7", bar:"#16a34a" };
+  if (s >= 60) return { label:"PARTIALLY SELECTED", emoji:"🟡", fg:"#7c2d12", bg:"#ffedd5", bar:"#ea580c" };
   return             { label:"REJECTED",            emoji:"❌", fg:"#7f1d1d", bg:"#fee2e2", bar:"#dc2626" };
 }
 
@@ -22,6 +22,76 @@ function Tag({ children, type = "match" }) {
     <span style={{ fontSize:10, padding:"3px 8px", borderRadius:6, fontWeight:700, display:"inline-block", margin:2, ...styles[type] }}>
       {children}
     </span>
+  );
+}
+
+function WeightedScoreBar({ label, value, max, accent }) {
+  const v = Number(value) || 0;
+
+  // normalize to section max
+  const percent = Math.min((v / max) * 100, 100);
+
+  return (
+    <div style={{
+      marginTop: 14,
+      background: "#fff",
+      border: "1px solid #e2e8f0",
+      borderRadius: 12,
+      padding: "14px 16px"
+    }}>
+      {/* HEADER */}
+      <div style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 8
+      }}>
+        <span style={{
+          fontSize: 12,
+          fontWeight: 700,
+          color: "#475569"
+        }}>
+          {label}
+        </span>
+
+        <span style={{
+          fontSize: 13,
+          fontWeight: 900,
+          color: pctText(percent)
+        }}>
+          {Math.round(v)}%
+        </span>
+      </div>
+
+      {/* BAR TRACK */}
+      <div style={{
+        height: 8,
+        background: "#f1f5f9",
+        borderRadius: 6,
+        overflow: "hidden"
+      }}>
+        {/* FILL */}
+        <div
+          style={{
+            height: "100%",
+            width: `${percent}%`,
+            background: `linear-gradient(90deg, ${accent}, ${pctStroke(percent)})`,
+            borderRadius: 6,
+            transition: "width 0.6s ease"
+          }}
+        />
+      </div>
+
+      {/* FOOT NOTE */}
+      <div style={{
+        fontSize: 10,
+        color: "#94a3b8",
+        marginTop: 6,
+        textAlign: "right"
+      }}>
+        out of {max}%
+      </div>
+    </div>
   );
 }
 
@@ -242,17 +312,27 @@ async function readPDF(file, cb) {
 }
 
 /* ─── System prompt ──────────────────────────────────────────────────── */
-const SYS = `You are an expert AI Resume Screening Assistant for Achala.Ai.
+const SYS = `
+You are an expert AI Resume Screening Assistant for Achala.Ai.
+
 Analyze the provided Job Description and Candidate Resume carefully.
- 
-Return ONLY a single valid JSON object. No markdown. No backticks. No explanation. Just the raw JSON.
- 
+
+Return ONLY a single valid JSON object.
+- No markdown
+- No backticks
+- No explanation
+- No extra text
+
+────────────────────────────────────────────
+EXISTING JSON STRUCTURE (DO NOT MODIFY)
+────────────────────────────────────────────
+
 {
 "candidate_name": "<full name from resume, or Not Available>",
 "designation": "<role title from Job Description>",
- 
+
 "profile_summary": "<exactly 2 professional sentences: First sentence must summarise candidate’s overall experience and major skills from the resume. Second sentence must clearly state whether the profile matches the JD and highlight missing skills/keywords if any. If no skills match, clearly mention profile does not match the JD.>",
- 
+
 "profile_match": {
 "overall_percentage": <integer 0-100>,
 "experience_match": <integer 0-100>,
@@ -260,118 +340,152 @@ Return ONLY a single valid JSON object. No markdown. No backticks. No explanatio
 "location_match_pct": <integer 0-100>,
 "keyword_match_pct": <integer 0-100>
 },
- 
+
 "confidence_score": {
 "percentage": <integer 0-100>,
 "level": "<High|Medium|Low>",
-"reason": "<brief explanation based on match strength, resume clarity, and data completeness>"
+"reason": "<brief explanation>"
 },
- 
+
 "hiring_recommendation": {
 "decision": "<Hire|Hold|Reject>",
-"reason": "<short justification based on match score, skills alignment, and confidence score>"
+"reason": "<short justification>"
 },
- 
+
 "skills_detail": [
 { "skill": "<skill name>", "percentage": <0-100>, "status": "<Matched|Partial|Missing>" }
 ],
- 
+
 "work_history": [
 { "company": "<name>", "role": "<title>", "duration": "<e.g. 2 yrs 3 mo>", "from": "<year>", "to": "<year or Present>" }
 ],
- 
-"linkedin": "<URL string or null>",
-"contact_number": "<phone string or null>",
-"email": "<email string or null>",
- 
+
+"linkedin": "<URL or null>",
+"contact_number": "<string or null>",
+"email": "<string or null>",
+
 "location": {
 "candidate_location": "<city/state or Not Available>",
 "job_location": "<city/state or Not Available>",
 "match_status": "<Exact Match|Nearby Match|Mismatch|Not Available>"
 },
- 
+
 "certifications": ["<cert name>"],
- 
+
 "education": {
 "highest_degree": "<degree>",
-"field": "<subject area>",
-"institution": "<college/university>",
-"year": "<graduation year or Not Available>"
+"field": "<subject>",
+"institution": "<college>",
+"year": "<year>"
 },
- 
+
 "risk_analysis": {
 "risk_level": "<Low Risk|Medium Risk|High Risk>",
 "reasons": ["<reason>"]
 },
- 
+
 "keyword_match": {
 "percentage": <0-100>,
 "matched": ["<keyword>"],
 "missing": ["<keyword>"]
+},
+
+────────────────────────────────────────────
+NEW FIELD (APPEND ONLY — DO NOT REMOVE ABOVE)
+────────────────────────────────────────────
+
+"advanced_screening": {
+  "resume_weightage": 50,
+  "resume_score": <same as profile_match.overall_percentage>,
+  "resume_decision": "<Select|Partial|Reject>",
+
+  "interview": {
+    "weightage": 25,
+    "questions": [
+      {
+        "question": "<JD based technical question>",
+        "expected_answer": "<clear structured answer>"
+      },
+      {
+        "question": "",
+        "expected_answer": ""
+      },
+      {
+        "question": "",
+        "expected_answer": ""
+      },
+      {
+        "question": "",
+        "expected_answer": ""
+      },
+      {
+        "question": "",
+        "expected_answer": ""
+      }
+    ]
+  },
+
+  "skill_rating": {
+    "weightage": 25,
+    "skills": [
+      "<top JD skill 1>",
+      "<top JD skill 2>",
+      "<top JD skill 3>",
+      "<top JD skill 4>",
+      "<top JD skill 5>"
+    ]
+  }
 }
+
 }
- 
-STRICT DECISION RULES:
- 
-1. DIRECT REJECT CONDITION:
-- If there are NO matching skills AND NO matching keywords between JD and Resume:
-  → Set "overall_percentage" = 0
-  → Set skills_match = 0
-  → Set keyword_match_pct = 0
-  → Set confidence_score.percentage < 60
-  → Set confidence_score.level = "Low"
-  → Set hiring_recommendation.decision = "Reject"
-  → hiring_recommendation.reason = "No matching skills or keywords found as per JD"
-  → Ensure profile_summary clearly states: "Profile does not match the JD as no relevant skills or keywords were found."
- 
-2. MATCHING LOGIC:
-- If skills_match >= 85 AND keyword_match_pct >= 85 → Strong Match
-- If skills_match between 80–84 OR keyword_match_pct between 80–84 → Partial Match
-- If skills_match <= 79 OR keyword_match_pct <= 79 → Weak Match
- 
-3. HIRING RECOMMENDATION RULES:
- 
-- Hire:
-  → overall_percentage >= 85
-  → confidence_score.level = "High"
-  → Strong skills & keyword alignment
-  → hiring_recommendation.decision = "Hire"
- 
-- Hold:
-  → overall_percentage between 80–84
-  → OR confidence_score.level = "Medium"
-  → Some missing skills but still relevant
-  → hiring_recommendation.decision = "Hold"
- 
-- Reject:
-  → overall_percentage < 80
-  → OR confidence_score.level = "Low"
-  → Weak match or missing critical skills
-  → hiring_recommendation.decision = "Reject"
- 
-4. PROFILE SUMMARY RULE (MANDATORY):
-- Sentence 1: Candidate experience + top 3–5 key skills from resume
-- Sentence 2: JD match status + mention missing skills (if any)
-- Must be exactly 2 sentences (no more, no less)
- 
-5. CONFIDENCE SCORE RULES:
-- High (85–100):
-  → Strong skill + keyword match
-  → Resume is well-structured and complete
- 
-- Medium (60–84):
-  → Partial match with some missing skills/keywords
- 
-- Low (<60):
-  → Weak or no match
-  → MUST be Low if Direct Reject condition is triggered
- 
-EXTRACTION RULES:
-- candidate_name, linkedin, contact_number, email → extract verbatim from resume; use null if absent.
-- certifications → empty array [] if none found.
-- work_history → list EVERY job found; most recent first.
-- skills_detail → evaluate 8-10 skills mentioned in the JD against the resume.
-- Return ONLY the JSON object. Nothing before or after it.`;
+
+────────────────────────────────────────────
+STRICT RULES (VERY IMPORTANT)
+────────────────────────────────────────────
+
+1. RESUME DECISION (BASED ON overall_percentage):
+   - >35 → "Select"
+   - 25–35 → "Partial"
+   - <25 → "Reject"
+
+2. INTERVIEW QUESTIONS:
+   - EXACTLY 5 questions
+   - STRICTLY based on Job Description
+   - Must test real technical depth
+   - NO generic or behavioral questions
+
+3. EXPECTED ANSWERS:
+   - Clear, structured
+   - Recruiter-friendly
+   - 1–3 lines max
+
+4. SKILLS FOR RATING:
+   - Extract TOP 5 MOST IMPORTANT TECHNICAL SKILLS from JD
+   - NO soft skills
+   - NO duplicates
+
+5. DO NOT MODIFY:
+   - Existing keys
+   - Existing structure
+   - Existing naming
+
+6. OUTPUT FORMAT:
+   - Return ONE valid JSON object
+   - No trailing commas
+   - No comments
+   - No text outside JSON
+
+────────────────────────────────────────────
+CRITICAL VALIDATION
+────────────────────────────────────────────
+
+- Ensure JSON is parsable
+- Ensure all fields exist
+- Ensure exactly 5 questions
+- Ensure exactly 5 skills
+
+Return ONLY JSON.
+`;
 
 function calculateTotalExperience(workHistory = []) {
   let totalMonths = 0;
@@ -500,7 +614,9 @@ async function buildPDF(d) {
 
   const pm = d.profile_match || {};
   const score = parseInt(pm.overall_percentage) || 0;
+  const weightedResumeScore = (rawResumeScore / 100) * 50;
   const v = verdict(score);
+  //const v = verdict(Math.round(weightedResumeScore));
 
   // ── PAGE 1 ──────────────────────────────────────────────────────────
   // dark header band
@@ -857,6 +973,8 @@ export default function AchalaAi() {
   const [dlBusy,  setDlBusy]  = useState(false);
   const timerRef  = useRef(null);
   const resultRef = useRef(null);
+  const [answers, setAnswers] = useState(Array(5).fill(""));
+  const [ratings, setRatings] = useState(Array(5).fill(0));
 
   /* progress ticker */
   function startProgress() {
@@ -899,6 +1017,7 @@ export default function AchalaAi() {
       const parsed = JSON.parse(raw.slice(s,e2+1));
       stopProgress();
       setTimeout(()=>{ setResult(parsed); setLoading(false); setTimeout(()=>resultRef.current?.scrollIntoView({behavior:"smooth",block:"start"}),120); },500);
+      console.log("API response:", parsed);
     } catch(err) {
       stopProgress(); setLoading(false);
       const message = err.message === "Failed to fetch"
@@ -916,10 +1035,54 @@ export default function AchalaAi() {
     finally{ setDlBusy(false); }
   }
 
-  /* derived */
   const pm    = result?.profile_match || {};
+  const answerMap = { correct: 100, partial: 60, wrong: 0 };
+
+  const questionScore =
+    answers.reduce((acc, a) => acc + (answerMap[a] || 0), 0) / 5;
+
+  const weightedQuestionScore = (questionScore / 100) * 25;
+
+  // SKILL RATING
+  const ratingScore =
+    ratings.reduce((acc, r) => acc + (r / 5) * 100, 0) / 5;
+
+  const weightedRatingScore = (ratingScore / 100) * 25;
+
+  // RESUME WEIGHT
+  const resumeScore = parseInt(pm.overall_percentage) || 0;
+  const weightedResume = (resumeScore / 100) * 50;
+
+  // FINAL SCORE
+  // const finalScore =
+  //   weightedResume + weightedQuestionScore + weightedRatingScore;
+
+  function finalVerdict(score) {
+    if (score >= 75) return "SELECT";
+    if (score >= 60) return "PARTIAL";
+    return "REJECT";
+  }
+
+  // CONDITION: show sections only if selected or partial
+  const resumeDecision =
+  result?.advanced_screening?.resume_decision;
+
+  const isEligible =
+    resumeDecision === "Select" ||
+    resumeDecision === "Partial";
+
+  const finalScore = isEligible
+  ? weightedResume + weightedQuestionScore + weightedRatingScore
+  : weightedResume;
+
+  /* derived */
   const score = parseInt(pm.overall_percentage)||0;
-  const verd  = result ? verdict(score) : null;
+  const weightedResumeScore = (score / 100) * 50;
+  //const verd  = result ? verdict(score) : null;
+  const dynamicScore = isEligible
+  ? finalScore
+  : weightedResumeScore;
+  const verd = verdict(Math.round(dynamicScore));
   const kw    = result?.keyword_match  || {};
   const risk  = result?.risk_analysis  || {};
   const edu   = result?.education      || {};
@@ -931,6 +1094,69 @@ export default function AchalaAi() {
   const locBg = loc.match_status?.includes("Exact")?"#dcfce7":loc.match_status?.includes("Nearby")?"#ffedd5":"#fee2e2";
 
   const fonts=[["system-ui,-apple-system,sans-serif","Aa"],["Georgia,'Times New Roman',serif","Ss"],["'Courier New',monospace","</>"]];
+
+  // const staticQuestions = [
+  //   {
+  //     question: "Explain dependency injection in Angular.",
+  //     expected: "DI is a design pattern where dependencies are injected into components instead of created inside."
+  //   },
+  //   {
+  //     question: "What is useEffect in React?",
+  //     expected: "Hook used to handle side effects like API calls, subscriptions."
+  //   },
+  //   {
+  //     question: "Explain REST API principles.",
+  //     expected: "Stateless, client-server, cacheable, uniform interface."
+  //   },
+  //   {
+  //     question: "What is lazy loading?",
+  //     expected: "Loading modules/components only when needed to improve performance."
+  //   },
+  //   {
+  //     question: "Difference between var, let, const?",
+  //     expected: "Scope + mutability differences."
+  //   }
+  // ];
+
+  // const staticSkills = ["React", "Node.js", "SQL", "System Design", "JavaScript"];
+
+  const aiQuestions =
+  result?.advanced_screening?.interview?.questions?.length === 5
+    ? result.advanced_screening.interview.questions
+    : [
+        {
+          question: "Explain dependency injection",
+          expected_answer: "Design pattern..."
+        },
+        {
+          question: "What is React useEffect?",
+          expected_answer: "Side effects"
+        },
+        {
+          question: "Explain REST APIs",
+          expected_answer: "Stateless architecture"
+        },
+        {
+          question: "What is async programming?",
+          expected_answer: "Non-blocking execution"
+        },
+        {
+          question: "Explain OOP principles",
+          expected_answer: "Encapsulation, inheritance"
+        }
+      ];
+
+  const aiSkills =
+  result?.advanced_screening?.skill_rating?.skills?.length === 5
+    ? result.advanced_screening.skill_rating.skills
+    : ["React", "Node.js", "SQL", "AWS", "JavaScript"];
+
+  useEffect(() => {
+    if (result) {
+      setAnswers(Array(5).fill(""));
+      setRatings(Array(5).fill(0));
+    }
+  }, [result]);
 
   return (
     <div style={{fontFamily:font,background:"#f8fafc",minHeight:"100vh"}}>
@@ -1052,7 +1278,7 @@ export default function AchalaAi() {
                     </div>
                     <div style={{textAlign:"center",background:"rgba(255,255,255,.12)",border:"1.5px solid rgba(255,255,255,.25)",borderRadius:14,padding:"16px 22px",minWidth:155}}>
                       <div style={{fontSize:9,fontWeight:700,letterSpacing:".12em",textTransform:"uppercase",opacity:.65,marginBottom:7}}>SCREENING VERDICT</div>
-                      <div style={{fontSize:34,fontWeight:900,lineHeight:1,marginBottom:7}}>{score}%</div>
+                      <div style={{fontSize:34,fontWeight:900,lineHeight:1,marginBottom:7}}>{Math.round(dynamicScore)}%</div>
                       <div style={{fontSize:12,fontWeight:900,padding:"5px 12px",borderRadius:8,display:"inline-block",background:verd.bg,color:verd.fg}}>{verd.emoji} {verd.label}</div>
                     </div>
                   </div>
@@ -1213,18 +1439,11 @@ export default function AchalaAi() {
 
               </div>
             )}
-
-            {/* DOWNLOAD */}
-            <button onClick={download} disabled={dlBusy}
-              style={{display:"inline-flex",alignItems:"center",gap:9,padding:"13px 24px",borderRadius:12,background:dlBusy?"#94a3b8":"linear-gradient(135deg,#15803d,#16a34a)",color:"#fff",fontFamily:font,fontWeight:800,fontSize:14,border:"none",cursor:dlBusy?"not-allowed":"pointer",marginTop:16,boxShadow:dlBusy?"none":"0 4px 16px rgba(21,128,61,.28)",transition:"all .2s"}}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              {dlBusy?"Generating PDF…":"Download Full PDF Report"}
-            </button>
           </div>
         )}
 
         {/* ── TESTIMONIALS ── */}
-        <div id="testimonials" style={{height:1,background:"#e2e8f0",margin:"36px 0 28px"}}/>
+        {/* <div id="testimonials" style={{height:1,background:"#e2e8f0",margin:"36px 0 28px"}}/>
         <div style={{display:"inline-block",background:"#dbeafe",color:"#1d4ed8",fontSize:10,fontWeight:800,letterSpacing:".12em",textTransform:"uppercase",padding:"4px 12px",borderRadius:20,marginBottom:10}}>✦ Testimonials</div>
         <div style={{fontSize:21,fontWeight:800,letterSpacing:"-.02em",marginBottom:6}}>What recruiters say</div>
         <div style={{color:"#64748b",fontSize:13,marginBottom:20}}>Trusted by hiring teams across industries.</div>
@@ -1242,7 +1461,148 @@ export default function AchalaAi() {
               </div>
             </div>
           ))}
-        </div>
+        </div> */}
+
+        {isEligible && (
+          <div style={{
+            marginTop: 24,
+            background: "#fff",
+            border: "1px solid #e2e8f0",
+            borderRadius: 18,
+            padding: 20,
+            boxShadow: "0 4px 20px rgba(0,0,0,.05)"
+          }}>
+
+            {/* HEADER */}
+            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 12 }}>
+              📞 Technical Interview (25%)
+            </div>
+
+            {/* QUESTIONS */}
+            {aiQuestions.map((q, i) => (
+              <div key={i} style={{
+                border: "1px solid #f1f5f9",
+                borderRadius: 12,
+                padding: 14,
+                marginBottom: 12,
+                background: "#fafafa"
+              }}>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                  Q{i + 1}. {q.question}
+                </div>
+
+                <div style={{
+                  fontSize: 12,
+                  color: "#64748b",
+                  marginBottom: 8
+                }}>
+                  Expected: {q.expected_answer || q.expected || "Not provided"}
+                </div>
+
+                <select
+                  value={answers[i]}
+                  onChange={(e) => {
+                    const arr = [...answers];
+                    arr[i] = e.target.value;
+                    setAnswers(arr);
+                  }}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    border: "1px solid #cbd5f5",
+                    cursor: "pointer",
+                  }}
+                >
+                  <option value="">Select</option>
+                  <option value="correct">Correct</option>
+                  <option value="partial">Partial</option>
+                  <option value="wrong">Wrong</option>
+                </select>
+              </div>
+            ))}
+
+            {/* SCORE BAR */}
+            <WeightedScoreBar
+              label="Interview Score"
+              value={weightedQuestionScore}
+              max={25}
+              accent="#10b981"
+            />
+
+            {/* SKILL SECTION */}
+            <div style={{ marginTop: 20 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 12 }}>
+                ⭐ Skill Rating (25%)
+              </div>
+
+              {aiSkills.map((s, i) => (
+                <div key={i} style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 10
+                }}>
+                  <span style={{ fontWeight: 600 }}>{s}</span>
+
+                  <input
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={ratings[i]}
+                    onChange={(e) => {
+                      const arr = [...ratings];
+                      arr[i] = Number(e.target.value);
+                      setRatings(arr);
+                    }}
+                    style={{
+                      width: 60,
+                      padding: 6,
+                      borderRadius: 8,
+                      border: "1px solid #cbd5f5"
+                    }}
+                  />
+                </div>
+              ))}
+
+              <WeightedScoreBar
+                label="Skill Score"
+                value={weightedRatingScore}
+                max={25}
+                accent="#10b981"
+              />
+            </div>
+
+            {/* FINAL SCORE */}
+            <div style={{
+              marginTop: 20,
+              padding: 16,
+              borderRadius: 12,
+              background: "#0f172a",
+              color: "#fff",
+              textAlign: "center"
+            }}>
+              <div style={{ fontSize: 14, opacity: 0.8 }}>
+                FINAL SCORE
+              </div>
+
+              <div style={{ fontSize: 28, fontWeight: 900 }}>
+                {Math.round(finalScore)}%
+              </div>
+
+              <div style={{ marginTop: 6, fontWeight: 700 }}>
+                {finalVerdict(finalScore)}
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* DOWNLOAD */}
+        <button onClick={download} disabled={dlBusy}
+          style={{display:"inline-flex",alignItems:"center",gap:9,padding:"13px 24px",borderRadius:12,background:dlBusy?"#94a3b8":"linear-gradient(135deg,#15803d,#16a34a)",color:"#fff",fontFamily:font,fontWeight:800,fontSize:14,border:"none",cursor:dlBusy?"not-allowed":"pointer",marginTop:16,boxShadow:dlBusy?"none":"0 4px 16px rgba(21,128,61,.28)",transition:"all .2s"}}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          {dlBusy?"Generating PDF…":"Download Full PDF Report"}
+        </button>
 
         {/* ── CTA ── */}
         <div style={{background:"linear-gradient(135deg,#0c1445,#1d4ed8 50%,#0891b2)",borderRadius:18,padding:"40px 32px",textAlign:"center",color:"#fff",margin:"32px 0"}}>
